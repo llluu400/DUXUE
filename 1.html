@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>督学局</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@latest"></script>
+    <script type="importmap">
+        {
+            "imports": {
+                "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.mjs"
+            }
+        }
+    </script>
+    <style>
+        /* ===== 样式与之前完全相同，为节省篇幅省略，实际使用时保留完整样式 ===== */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background-image: url('background.png'); background-size: cover; background-position: center; min-height: 100vh; display: flex; justify-content: flex-end; align-items: flex-start; padding: 30px; font-family: Arial, sans-serif; }
+        .panel { background-color: #2a2a2a; padding: 0 20px 15px 20px; border-radius: 12px; box-shadow: 0 8px 20px rgba(0,0,0,0.6); display: flex; flex-direction: column; align-items: flex-end; min-width: 200px; position: relative; transition: border 0.3s; }
+        .panel.punished { border: 4px solid #ff3333; box-shadow: 0 0 30px rgba(255,0,0,0.5); }
+        .panel.task-punished { border: 4px solid #ffaa00; box-shadow: 0 0 30px rgba(255,170,0,0.5); }
+        .timer { background-color: rgba(34,31,31,0.85); padding: 3px 6px; border-radius: 0px; font-size: 26px; display: flex; align-items: center; gap: 1px; color: white; font-family: monospace; box-shadow: 0 8px 8px rgba(0,0,0,0.5); }
+        .timer span { display: inline-block; min-width: 34px; text-align: center; padding: 1px 4px; border: 2px solid #434e50; border-radius: 0px; background: rgba(0,0,0,0.4); }
+        .timer .colon { display: inline; min-width: auto; padding: 0; border: none; background: none; font-weight: bold; }
+        #adjustButtons { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 0px; justify-content: center; }
+        .buttons { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 2px; justify-content: center; }
+        .btn { background: #0f3460; color: white; border: none; padding: 3px 10px; border-radius: 0px; font-size: 13px; font-weight: bold; cursor: pointer; transition: background 0.2s; min-width: 28px; }
+        .btn-big { padding: 3px 20px; font-size: 14px; min-width: 80px; }
+        .btn1 { background: #0f3460; color: white; border: none; padding: 1px 3px; border-radius: 0px; font-size: 11px; font-weight: bold; cursor: pointer; transition: background 0.2s; min-width: 26px; }
+        .btn:hover { background: #1a4a7a; }
+        .btn:active { transform: scale(0.95); }
+        .btn1-plus { background: #2d6a4f; }
+        .btn1-plus:hover { background: #409f7a; }
+        .btn1-minus { background: #9b2226; }
+        .btn1-minus:hover { background: #c93e42; }
+        .btn-action { background: #e07c3c; }
+        .btn-action:hover { background: #f09b5a; }
+        .btn-danger { background: #a83232; }
+        .btn-danger:hover { background: #c94a4a; }
+        .btn-stats { background: #6a4c9c; color: white; border: none; padding: 3px 10px; border-radius: 0px; font-size: 13px; font-weight: bold; cursor: pointer; transition: background 0.2s; min-width: 28px; }
+        .btn-stats:hover { background: #8a6cbc; }
+        .status { margin-top: 10px; font-size: 10px; color: #ffd700; background: rgba(0,0,0,0.6); padding: 4px 4px; border-radius: 8px; min-height: 30px; max-width: 100%; text-align: center; align-self: center; width: 100%; }
+        .star-area { margin-top: 6px; font-size: 14px; color: #ffd700; text-align: center; align-self: center; min-height: 28px; }
+        #checkArea { display: none; margin-top: 10px; padding: 8px 12px; background-color: rgba(200,50,50,0.8); border-radius: 8px; text-align: center; color: white; font-size: 13px; align-self: center; width: 100%; box-shadow: 0 0 15px rgba(255,0,0,0.5); }
+        #checkArea .check-title { font-weight: bold; font-size: 16px; margin-bottom: 4px; }
+        #checkArea .check-timer { font-size: 20px; font-weight: bold; color: #ffdd44; }
+        #checkArea .check-btn { margin-top: 6px; background: #4ecdc4; color: #1a1a2e; border: none; padding: 4px 20px; border-radius: 20px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        #checkArea .check-btn:hover { background: #6ee0d8; transform: scale(1.05); }
+        #objectDetectMsg { margin-top: 5px; font-size: 14px; font-weight: bold; color: #ffdd44; min-height: 20px; }
+        #webcam { position: fixed; bottom: 20px; right: 20px; width: 160px; height: 120px; border-radius: 12px; border: 2px solid rgba(255,255,255,0.6); box-shadow: 0 4px 15px rgba(0,0,0,0.5); background-color: #000; transform: scaleX(-1); object-fit: cover; z-index: 999; }
+        #statsModal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; }
+        #statsModal.show { display: flex; }
+        .stats-content { background: #1e1e2a; padding: 20px 30px; border-radius: 16px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto; color: #eee; box-shadow: 0 10px 40px rgba(0,0,0,0.8); position: relative; }
+        .stats-content h2 { margin-bottom: 15px; color: #ffd700; text-align: center; }
+        .stats-content .close-btn { position: absolute; top: 10px; right: 20px; font-size: 28px; color: #aaa; cursor: pointer; transition: 0.2s; }
+        .stats-content .close-btn:hover { color: #fff; transform: scale(1.2); }
+        .stats-summary { display: flex; flex-wrap: wrap; gap: 15px; justify-content: space-around; margin-bottom: 20px; background: #2a2a3a; padding: 12px; border-radius: 10px; }
+        .stats-item { text-align: center; flex: 1; min-width: 80px; }
+        .stats-item .number { font-size: 28px; font-weight: bold; color: #4ecdc4; }
+        .stats-item .label { font-size: 12px; color: #aaa; }
+        .stats-list { max-height: 200px; overflow-y: auto; border-top: 1px solid #444; padding-top: 10px; }
+        .stats-list .record { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; border-bottom: 1px solid #333; }
+        .stats-list .record .date { color: #aaa; }
+        .stats-list .record .info { color: #ccc; }
+        .stats-list .record .badge { background: #e07c3c; color: #fff; padding: 0 8px; border-radius: 10px; font-size: 10px; }
+        .stats-list .record .badge.punished { background: #ff3333; }
+        #taskPunish { display: none; margin-top: 10px; padding: 12px; background: #3a2a1a; border-radius: 8px; text-align: center; color: white; border: 2px solid #ffaa00; width: 100%; }
+        #taskPunish .task-title { font-size: 18px; font-weight: bold; color: #ffaa00; }
+        #taskPunish .task-desc { font-size: 16px; margin: 8px 0; }
+        #taskPunish .task-btn { background: #ffaa00; color: #1a1a2e; border: none; padding: 8px 25px; border-radius: 20px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        #taskPunish .task-btn:hover { background: #ffcc44; transform: scale(1.05); }
+    </style>
+</head>
+<body>
+
+    <div class="panel" id="mainPanel">
+        <div class="timer">
+            <span id="hourDisplay">00</span><span class="colon">:</span>
+            <span id="minDisplay">00</span><span class="colon">:</span>
+            <span id="secDisplay">00</span>
+        </div>
+
+        <div id="adjustButtons">
+            <button class="btn1 btn1-plus" id="hourplus">时+</button>
+            <button class="btn1 btn1-minus" id="hourminus">时-</button>
+            <button class="btn1 btn1-plus" id="minplus">分+</button>
+            <button class="btn1 btn1-minus" id="minminus">分-</button>
+            <button class="btn1 btn1-plus" id="secplus">秒+</button>
+            <button class="btn1 btn1-minus" id="secminus">秒-</button>
+        </div>
+
+        <div class="buttons" style="margin-top: 8px;">
+            <button class="btn btn-action btn-big" id="mainBtn">开始劳动</button>
+            <button class="btn btn-action" id="pauseBtn" style="display: none;">暂时休整</button>
+            <button class="btn btn-danger" id="resetBtn" style="display: none;">叛逃组织</button>
+            <button class="btn-stats" id="statsBtn">📊 统计</button>
+        </div>
+
+        <div class="status" id="statusMsg">⏰ 设置时间，点击“开始”</div>
+
+        <div id="checkArea">
+            <div class="check-title">🚨 督学官出现！</div>
+            <div>请低头学习（睁眼）且桌面不要有手机</div>
+            <div class="check-timer" id="checkTimer">10</div>
+            <div>秒内检测到专注状态即可</div>
+            <div id="objectDetectMsg"></div>
+            <button class="check-btn" id="respondBtn">✔ 我在学习 (手动)</button>
+        </div>
+
+        <div id="taskPunish">
+            <div class="task-title">惩罚</div>
+            <div class="task-desc" id="taskDesc">请完成 10 个俯卧撑</div>
+            <button class="task-btn" id="taskCompleteBtn">✅ 已完成</button>
+        </div>
+
+        <div class="star-area" id="starDisplay">⭐ 0 / 3</div>
+    </div>
+
+    <div id="statsModal">
+        <div class="stats-content">
+            <span class="close-btn" id="closeStatsBtn">&times;</span>
+            <h2>📊 学习统计</h2>
+            <div class="stats-summary">
+                <div class="stats-item"><div class="number" id="statTotalTime">0</div><div class="label">总学习时间 (小时)</div></div>
+                <div class="stats-item"><div class="number" id="statTotalFails">0</div><div class="label">总失败次数</div></div>
+                <div class="stats-item"><div class="number" id="statTotalPunishments">0</div><div class="label">总惩罚次数</div></div>
+                <div class="stats-item"><div class="number" id="statAvgFails">0</div><div class="label">平均失败/次</div></div>
+            </div>
+            <h3 style="margin: 10px 0 5px; font-size: 14px;">最近记录</h3>
+            <div class="stats-list" id="statsList"></div>
+        </div>
+    </div>
+
+    <video id="webcam" autoplay playsinline></video>
+
+    <script type="module">
+        import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
+
+        // ---------- DOM ----------
+        const hourDisp = document.getElementById('hourDisplay');
+        const minDisp = document.getElementById('minDisplay');
+        const secDisp = document.getElementById('secDisplay');
+        const statusMsg = document.getElementById('statusMsg');
+        const mainBtn = document.getElementById('mainBtn');
+        const pauseBtn = document.getElementById('pauseBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const statsBtn = document.getElementById('statsBtn');
+        const closeStatsBtn = document.getElementById('closeStatsBtn');
+        const statsModal = document.getElementById('statsModal');
+        const adjustDiv = document.getElementById('adjustButtons');
+        const starDisplay = document.getElementById('starDisplay');
+        const checkArea = document.getElementById('checkArea');
+        const checkTimer = document.getElementById('checkTimer');
+        const respondBtn = document.getElementById('respondBtn');
+        const video = document.getElementById('webcam');
+        const mainPanel = document.getElementById('mainPanel');
+        const objectDetectMsg = document.getElementById('objectDetectMsg');
+        const taskPunish = document.getElementById('taskPunish');
+        const taskDesc = document.getElementById('taskDesc');
+        const taskCompleteBtn = document.getElementById('taskCompleteBtn');
+
+        // ---------- 计时器状态 ----------
+        let hour = 0, minute = 0, second = 0;
+        let remainingSeconds = 0;
+        let isRunning = false;
+        let isPaused = false;
+        let timerInterval = null;
+        let initialTotalSeconds = 0;
+
+        // ---------- 会话数据 ----------
+        let currentSessionFails = 0;
+        let currentSessionPunished = false;
+        let currentSessionTaskPunished = false;
+
+        // ---------- 督学状态 ----------
+        let starCount = 0;
+        let failCount = 0;
+        let isChecking = false;
+        let checkTimeLeft = 10;
+        let nextCheckTime = 0;
+        const CHECK_MIN_INTERVAL = 10;
+        const CHECK_MAX_INTERVAL = 20;
+        const CHECK_DURATION = 10;
+
+        // ---------- 惩罚状态 ----------
+        let isPunished = false;
+        let punishEndTimestamp = 0;
+        let punishInterval = null;
+        let punishRemainingSeconds = 0;
+        let isTaskPunished = false;
+
+        // ---------- AI 人脸检测 ----------
+        let faceLandmarker = null;
+        let detectorReady = false;
+        let detectionInterval = null;
+        let isAttentive = false;
+
+        // ---------- 物体检测 ----------
+        let objectModel = null;
+        let objectDetectorReady = false;
+        let isPhoneDetected = false;
+        let isBookDetected = false;
+        let objectDetectInterval = null;
+        const DETECT_INTERVAL = 500;
+
+        // ---------- 缓冲机制 ----------
+        let faceLostBuffered = 0;
+        let faceWarned = false;
+
+        // ---------- 统计相关 ----------
+        function loadStats() {
+            try {
+                const data = localStorage.getItem('studyStats');
+                if (data) return JSON.parse(data);
+            } catch (e) {}
+            return { totalStudySeconds: 0, totalFails: 0, totalPunishments: 0, totalTaskPunishments: 0, sessions: [] };
+        }
+        function saveStats(stats) {
+            localStorage.setItem('studyStats', JSON.stringify(stats));
+        }
+        function saveSession(duration, fails, punished, taskPunished) {
+            const stats = loadStats();
+            stats.totalStudySeconds += duration;
+            stats.totalFails += fails;
+            if (punished) stats.totalPunishments += 1;
+            if (taskPunished) stats.totalTaskPunishments = (stats.totalTaskPunishments || 0) + 1;
+            stats.sessions.push({
+                date: new Date().toLocaleString(),
+                durationSeconds: duration,
+                fails: fails,
+                punished: punished,
+                taskPunished: taskPunished
+            });
+            if (stats.sessions.length > 100) stats.sessions = stats.sessions.slice(-100);
+            saveStats(stats);
+        }
+        function updateStatsDisplay() {
+            const stats = loadStats();
+            document.getElementById('statTotalTime').textContent = (stats.totalStudySeconds / 3600).toFixed(1);
+            document.getElementById('statTotalFails').textContent = stats.totalFails;
+            document.getElementById('statTotalPunishments').textContent = stats.totalPunishments;
+            const avg = stats.sessions.length ? (stats.totalFails / stats.sessions.length).toFixed(1) : 0;
+            document.getElementById('statAvgFails').textContent = avg;
+            const list = document.getElementById('statsList');
+            list.innerHTML = '';
+            const recent = [...stats.sessions].reverse().slice(0, 10);
+            if (recent.length === 0) {
+                list.innerHTML = '<div style="color:#888; text-align:center; padding:10px;">暂无记录</div>';
+                return;
+            }
+            recent.forEach(rec => {
+                const div = document.createElement('div');
+                div.className = 'record';
+                const minStr = Math.floor(rec.durationSeconds / 60) + '分钟';
+                let badge = '';
+                if (rec.punished) badge = '<span class="badge punished">停用</span>';
+                else if (rec.taskPunished) badge = '<span class="badge">体力</span>';
+                else if (rec.fails > 0) badge = '<span class="badge">失败' + rec.fails + '</span>';
+                div.innerHTML = `<span class="date">${rec.date}</span><span class="info">${minStr} ${badge}</span>`;
+                list.appendChild(div);
+            });
+        }
+        function showStats() { updateStatsDisplay(); statsModal.classList.add('show'); }
+        function closeStats() { statsModal.classList.remove('show'); }
+        statsModal.addEventListener('click', e => { if (e.target === statsModal) closeStats(); });
+        closeStatsBtn.addEventListener('click', closeStats);
+        statsBtn.addEventListener('click', showStats);
+
+        // ---------- 辅助函数 ----------
+        function updateTimerDisplay() {
+            if (isPunished) {
+                const totalSec = Math.max(0, punishRemainingSeconds);
+                const h = Math.floor(totalSec / 3600);
+                const m = Math.floor((totalSec % 3600) / 60);
+                const s = Math.floor(totalSec % 60);
+                hourDisp.textContent = String(h).padStart(2, '0');
+                minDisp.textContent = String(m).padStart(2, '0');
+                secDisp.textContent = String(s).padStart(2, '0');
+            } else {
+                hourDisp.textContent = String(hour).padStart(2, '0');
+                minDisp.textContent = String(minute).padStart(2, '0');
+                secDisp.textContent = String(second).padStart(2, '0');
+            }
+        }
+        function updateDisplay() { updateTimerDisplay(); }
+        function updateStars() {
+            starDisplay.textContent = '⭐ ' + starCount + ' / 3';
+        }
+        function toTotalSeconds() { return hour * 3600 + minute * 60 + second; }
+        function fromTotalSeconds(secs) {
+            if (secs < 0) secs = 0;
+            hour = Math.floor(secs / 3600);
+            const rem = secs % 3600;
+            minute = Math.floor(rem / 60);
+            second = Math.floor(rem % 60);
+            updateDisplay();
+        }
+        function randomInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+        function resetNextCheck() { nextCheckTime = randomInt(CHECK_MIN_INTERVAL, CHECK_MAX_INTERVAL); }
+
+        // ---------- 控制统计按钮显隐 ----------
+        function setStatsButtonVisible(visible) {
+            const btn = document.getElementById('statsBtn');
+            if (btn) btn.style.display = visible ? 'inline-block' : 'none';
+        }
+
+        // ---------- 按钮切换 ----------
+        function showStartOnly() {
+            mainBtn.className = 'btn btn-action btn-big';
+            mainBtn.textContent = '开始劳动';
+            mainBtn.style.display = 'inline-block';
+            pauseBtn.style.display = 'none';
+            resetBtn.style.display = 'none';
+            adjustDiv.style.display = 'flex';
+        }
+        function showPauseReset() {
+            mainBtn.style.display = 'none';
+            pauseBtn.style.display = 'inline-block';
+            resetBtn.style.display = 'inline-block';
+            adjustDiv.style.display = 'none';
+        }
+        function showContinueReset() {
+            mainBtn.className = 'btn btn-action';
+            mainBtn.textContent = '继续劳动';
+            mainBtn.style.display = 'inline-block';
+            pauseBtn.style.display = 'none';
+            resetBtn.style.display = 'inline-block';
+            adjustDiv.style.display = 'none';
+        }
+
+        // ---------- 新增：重置计时器状态 ----------
+        function resetTimerState() {
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+            isRunning = false;
+            isPaused = false;
+            remainingSeconds = 0;
+            initialTotalSeconds = 0;
+            hour = 0; minute = 0; second = 0;
+            updateDisplay();
+            if (isChecking) {
+                isChecking = false;
+                checkArea.style.display = 'none';
+            }
+            // 如果正在体力劳动或停用，这些由调用者处理
+        }
+
+        // ---------- 惩罚逻辑 ----------
+        // 停用惩罚
+        function startPunishment() {
+            // 重置倒计时
+            resetTimerState();
+
+            isPunished = true;
+            currentSessionPunished = true;
+            const duration = 6 * 3600 * 1000;
+            punishEndTimestamp = Date.now() + duration;
+            punishRemainingSeconds = 6 * 3600;
+            statusMsg.textContent = '⛔ 你已被停用6小时！';
+            mainPanel.classList.add('punished');
+            if (isChecking) { isChecking = false; checkArea.style.display = 'none'; }
+            if (isTaskPunished) {
+                isTaskPunished = false;
+                taskPunish.style.display = 'none';
+                mainPanel.classList.remove('task-punished');
+            }
+            mainBtn.disabled = true;
+            pauseBtn.disabled = true;
+            document.querySelectorAll('#adjustButtons .btn1').forEach(b => b.disabled = true);
+            updateTimerDisplay();
+            if (punishInterval) clearInterval(punishInterval);
+            punishInterval = setInterval(updatePunishDisplay, 1000);
+        }
+
+        function updatePunishDisplay() {
+            const now = Date.now();
+            const remaining = Math.max(0, punishEndTimestamp - now);
+            if (remaining <= 0) {
+                clearInterval(punishInterval);
+                punishInterval = null;
+                isPunished = false;
+                mainPanel.classList.remove('punished');
+                mainBtn.disabled = false;
+                pauseBtn.disabled = false;
+                document.querySelectorAll('#adjustButtons .btn1').forEach(b => b.disabled = false);
+                statusMsg.textContent = '✅ 停用结束，可以继续学习了！';
+                updateDisplay();
+                return;
+            }
+            const totalSec = Math.floor(remaining / 1000);
+            punishRemainingSeconds = totalSec;
+            updateTimerDisplay();
+            const h = Math.floor(totalSec / 3600);
+            const m = Math.floor((totalSec % 3600) / 60);
+            const s = Math.floor(totalSec % 60);
+            statusMsg.textContent = '⛔ 停用中，剩余 ' + String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+        }
+
+        function clearPunishment() {
+            if (punishInterval) { clearInterval(punishInterval); punishInterval = null; }
+            isPunished = false;
+            mainPanel.classList.remove('punished');
+            mainBtn.disabled = false;
+            pauseBtn.disabled = false;
+            document.querySelectorAll('#adjustButtons .btn1').forEach(b => b.disabled = false);
+            punishEndTimestamp = 0;
+            punishRemainingSeconds = 0;
+            updateDisplay();
+        }
+
+        // 体力劳动惩罚
+        function startTaskPunishment() {
+            if (isPunished) return;
+            // 重置倒计时
+            resetTimerState();
+
+            isTaskPunished = true;
+            currentSessionTaskPunished = true;
+            taskPunish.style.display = 'block';
+            mainPanel.classList.add('task-punished');
+            const tasks = [
+                { desc: '做 10 个俯卧撑', count: 10 },
+                { desc: '做 15 个深蹲', count: 15 },
+                { desc: '做 20 个开合跳', count: 20 },
+                { desc: '指压板慢跑2分钟', count: 2 }
+            ];
+            const selected = tasks[Math.floor(Math.random() * tasks.length)];
+            taskDesc.textContent = `请完成 ${selected.desc}`;
+            statusMsg.textContent = '惩罚进行中，完成后点击“已完成”';
+            mainBtn.disabled = true;
+            pauseBtn.disabled = true;
+            document.querySelectorAll('#adjustButtons .btn1').forEach(b => b.disabled = true);
+            if (isChecking) { isChecking = false; checkArea.style.display = 'none'; }
+        }
+
+        function completeTask() {
+            if (!isTaskPunished) return;
+            isTaskPunished = false;
+            taskPunish.style.display = 'none';
+            mainPanel.classList.remove('task-punished');
+            mainBtn.disabled = false;
+            pauseBtn.disabled = false;
+            document.querySelectorAll('#adjustButtons .btn1').forEach(b => b.disabled = false);
+            statusMsg.textContent = '✅ 体力劳动完成！请重新设定时间开始学习。';
+            // 增加失败计数
+            failCount++;
+            if (failCount >= 3) {
+                startPunishment();
+                failCount = 0;
+                starCount = 0;
+                updateStars();
+                return;
+            }
+            starCount = 0;
+            updateStars();
+            resetNextCheck();
+            // 注意：计时器已重置，用户必须重新设定时间并点击开始
+        }
+
+        // ---------- 督学检查 ----------
+        function startCheck() {
+            if (isPunished || isChecking || isTaskPunished) return;
+            isChecking = true;
+            checkTimeLeft = CHECK_DURATION;
+            checkArea.style.display = 'block';
+            checkTimer.textContent = checkTimeLeft;
+            statusMsg.textContent = '⚠️ 督学官巡视！请低头学习！';
+            isAttentive = false;
+            faceLostBuffered = 0;
+            faceWarned = false;
+            objectDetectMsg.textContent = '';
+        }
+
+        function endCheck(passed) {
+            isChecking = false;
+            checkArea.style.display = 'none';
+            objectDetectMsg.textContent = '';
+            faceLostBuffered = 0;
+            faceWarned = false;
+            if (passed) {
+                statusMsg.textContent = '✅ 督学官：同志很专注！';
+            } else {
+                starCount++;
+                updateStars();
+                statusMsg.textContent = '❌ 你被抓住了！星数+1';
+                if (starCount >= 3) {
+                    startTaskPunishment();
+                }
+            }
+            resetNextCheck();
+        }
+
+        function respondToCheck() {
+            if (!isChecking) return;
+            endCheck(true);
+        }
+
+        // ---------- 人脸 AI 分析 ----------
+        function distance(p1, p2) { return Math.hypot(p1.x - p2.x, p1.y - p2.y); }
+        function calculateEAR(landmarks, eyeIndices) {
+            const [p1, p2, p3, p4, p5, p6] = eyeIndices.map(i => landmarks[i]);
+            const v1 = distance(p1, p2);
+            const v2 = distance(p3, p4);
+            const h = distance(p5, p6);
+            return (v1 + v2) / (2.0 * h);
+        }
+        function isEyeOpen(landmarks) {
+            const leftEyeIndices = [33, 133, 157, 158, 159, 160];
+            const rightEyeIndices = [362, 263, 387, 386, 385, 384];
+            const leftEAR = calculateEAR(landmarks, leftEyeIndices);
+            const rightEAR = calculateEAR(landmarks, rightEyeIndices);
+            const avgEAR = (leftEAR + rightEAR) / 2;
+            return avgEAR > 0.25;
+        }
+        function isHeadDown(landmarks) {
+            const leftEye = landmarks[33];
+            const rightEye = landmarks[263];
+            const nose = landmarks[1];
+            const mouth = landmarks[13];
+            const eyeCenterY = (leftEye.y + rightEye.y) / 2;
+            const ratio = (nose.y - eyeCenterY) / (mouth.y - eyeCenterY);
+            return ratio > 0.65;
+        }
+        function evaluateAttention(landmarks) {
+            if (!landmarks || landmarks.length === 0) return false;
+            const eyeOpen = isEyeOpen(landmarks);
+            const headDown = isHeadDown(landmarks);
+            return eyeOpen && headDown;
+        }
+
+        function updateDetection() {
+            if (!isRunning || isPaused || !detectorReady || video.readyState < 2) {
+                isAttentive = false;
+                return;
+            }
+            try {
+                const result = faceLandmarker.detectForVideo(video, performance.now());
+                if (result.faceLandmarks && result.faceLandmarks.length > 0) {
+                    isAttentive = evaluateAttention(result.faceLandmarks[0]);
+                } else {
+                    isAttentive = false;
+                }
+            } catch (e) {}
+        }
+
+        // ---------- 物体检测 ----------
+        async function loadObjectModel() {
+            try {
+                statusMsg.textContent = '⏳ 加载物体检测模型...';
+                objectModel = await cocoSsd.load();
+                objectDetectorReady = true;
+                statusMsg.textContent = '⏰ 设置时间，点击“开始”';
+                console.log('物体检测模型已就绪');
+                if (objectDetectInterval) clearInterval(objectDetectInterval);
+                objectDetectInterval = setInterval(runObjectDetection, DETECT_INTERVAL);
+            } catch (error) {
+                console.error('物体检测模型加载失败:', error);
+                statusMsg.textContent = '⚠️ 物体检测不可用，不影响核心功能';
+            }
+        }
+
+        function runObjectDetection() {
+            if (!objectDetectorReady || !isRunning || isPaused || video.readyState < 2) {
+                isPhoneDetected = false;
+                isBookDetected = false;
+                return;
+            }
+            try {
+                objectModel.detect(video).then(predictions => {
+                    let phoneFound = false, bookFound = false;
+                    for (let pred of predictions) {
+                        if (pred.class === 'cell phone' && pred.score > 0.6) phoneFound = true;
+                        if (pred.class === 'book' && pred.score > 0.5) bookFound = true;
+                    }
+                    isPhoneDetected = phoneFound;
+                    isBookDetected = bookFound;
+                    if (isChecking) {
+                        let msg = '';
+                        if (isPhoneDetected) msg = '📱 检测到手机！专注失败！';
+                        else if (isBookDetected) msg = '📖 检测到书本，很好！';
+                        else msg = '⚠️ 未检测到书本，请摆好书';
+                        objectDetectMsg.textContent = msg;
+                        objectDetectMsg.style.color = isPhoneDetected ? '#ff6b6b' : (isBookDetected ? '#4ecdc4' : '#ffdd44');
+                    } else {
+                        objectDetectMsg.textContent = '';
+                    }
+                }).catch(err => {});
+            } catch (e) {}
+        }
+
+        // ---------- 主循环 ----------
+        function tick() {
+            if (!isRunning || isPaused) return;
+            if (isPunished || isTaskPunished) {
+                if (isChecking) { isChecking = false; checkArea.style.display = 'none'; }
+                return;
+            }
+
+            remainingSeconds--;
+            if (remainingSeconds <= 0) {
+                remainingSeconds = 0;
+                isRunning = false;
+                clearInterval(timerInterval);
+                timerInterval = null;
+                statusMsg.textContent = '🎉 计时结束！';
+                fromTotalSeconds(0);
+                showStartOnly();
+                if (isChecking) endCheck(false);
+                if (initialTotalSeconds > 0) {
+                    const duration = initialTotalSeconds - remainingSeconds;
+                    saveSession(duration, currentSessionFails, currentSessionPunished, currentSessionTaskPunished);
+                    initialTotalSeconds = 0;
+                }
+                currentSessionFails = 0;
+                currentSessionPunished = false;
+                currentSessionTaskPunished = false;
+                setStatsButtonVisible(true);
+                isPhoneDetected = false;
+                isBookDetected = false;
+                objectDetectMsg.textContent = '';
+                return;
+            }
+            fromTotalSeconds(remainingSeconds);
+
+            if (!isChecking) {
+                nextCheckTime--;
+                if (nextCheckTime <= 0) {
+                    startCheck();
+                }
+            } else {
+                if (isAttentive && !isPhoneDetected) {
+                    faceLostBuffered = 0;
+                    faceWarned = false;
+                    endCheck(true);
+                    return;
+                }
+                if (!isAttentive || isPhoneDetected) {
+                    faceLostBuffered++;
+                    if (faceLostBuffered <= 3) {
+                        const remainBuf = 4 - faceLostBuffered;
+                        let hint = '';
+                        if (isPhoneDetected) hint = '📱 检测到手机！请移开！';
+                        else hint = '📷 未捕捉到面部，请将设备立起';
+                        statusMsg.textContent = hint + '（剩余缓冲 ' + remainBuf + ' 秒）';
+                    } else {
+                        if (!faceWarned) {
+                            faceWarned = true;
+                            statusMsg.textContent = '⚠️ 宽限期已过，请立即调整！';
+                        }
+                        checkTimeLeft--;
+                        checkTimer.textContent = checkTimeLeft;
+                        if (checkTimeLeft <= 0) {
+                            endCheck(false);
+                            return;
+                        }
+                    }
+                } else {
+                    faceLostBuffered = 0;
+                    faceWarned = false;
+                }
+                if (faceLostBuffered > 3) {
+                    checkTimer.textContent = checkTimeLeft;
+                }
+            }
+        }
+
+        // ---------- 控制函数 ----------
+        function mainAction() {
+            if (isPunished) {
+                statusMsg.textContent = '⛔ 停用惩罚中，请等待倒计时结束！';
+                return;
+            }
+            if (isTaskPunished) {
+                statusMsg.textContent = '请先完成惩罚！';
+                return;
+            }
+            if (isPaused) {
+                isPaused = false;
+                statusMsg.textContent = '▶ 继续运行...';
+                showPauseReset();
+                return;
+            }
+            const secs = toTotalSeconds();
+            if (secs < 30 * 60) {
+                statusMsg.textContent = '⛔ 时间至少30分钟！';
+                return;
+            }
+            if (secs > 6 * 3600) {
+                statusMsg.textContent = '⛔ 时间不能超过6小时！';
+                return;
+            }
+            initialTotalSeconds = secs;
+            remainingSeconds = secs;
+            isRunning = true;
+            isPaused = false;
+            statusMsg.textContent = '🔴 倒计时进行中...';
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(tick, 1000);
+            showPauseReset();
+            starCount = 0; failCount = 0;
+            updateStars();
+            currentSessionFails = 0;
+            currentSessionPunished = false;
+            currentSessionTaskPunished = false;
+            resetNextCheck();
+            if (isChecking) endCheck(false);
+            isPhoneDetected = false;
+            isBookDetected = false;
+            objectDetectMsg.textContent = '';
+            faceLostBuffered = 0;
+            faceWarned = false;
+            if (isTaskPunished) {
+                isTaskPunished = false;
+                taskPunish.style.display = 'none';
+                mainPanel.classList.remove('task-punished');
+                mainBtn.disabled = false;
+                pauseBtn.disabled = false;
+                document.querySelectorAll('#adjustButtons .btn1').forEach(b => b.disabled = false);
+            }
+            setStatsButtonVisible(false);
+            if (statsModal.classList.contains('show')) closeStats();
+        }
+
+        function pauseTimer() {
+            if (!isRunning || isPaused) return;
+            isPaused = true;
+            statusMsg.textContent = '⏸ 已暂停';
+            showContinueReset();
+        }
+
+        function resetTimer() {
+            isRunning = false;
+            isPaused = false;
+            if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+            hour = 0; minute = 0; second = 0;
+            remainingSeconds = 0;
+            initialTotalSeconds = 0;
+            updateDisplay();
+            statusMsg.textContent = '⏰ 已重置，设置时间后开始';
+            showStartOnly();
+            starCount = 0; failCount = 0; updateStars();
+            currentSessionFails = 0;
+            currentSessionPunished = false;
+            currentSessionTaskPunished = false;
+            if (isChecking) endCheck(false);
+            resetNextCheck();
+            clearPunishment();
+            if (isTaskPunished) {
+                isTaskPunished = false;
+                taskPunish.style.display = 'none';
+                mainPanel.classList.remove('task-punished');
+                mainBtn.disabled = false;
+                pauseBtn.disabled = false;
+                document.querySelectorAll('#adjustButtons .btn1').forEach(b => b.disabled = false);
+            }
+            setStatsButtonVisible(true);
+            isPhoneDetected = false;
+            isBookDetected = false;
+            objectDetectMsg.textContent = '';
+            faceLostBuffered = 0;
+            faceWarned = false;
+        }
+
+        // ---------- 事件绑定 ----------
+        function bindAdjust(btnId, callback) {
+            document.getElementById(btnId).addEventListener('click', function() {
+                if (isRunning) {
+                    statusMsg.textContent = '⛔ 正在计时，不能调整时间！';
+                    return;
+                }
+                if (isPunished || isTaskPunished) {
+                    statusMsg.textContent = '⛔ 惩罚中，不能调整时间！';
+                    return;
+                }
+                callback();
+                updateDisplay();
+                statusMsg.textContent = '⏰ 时间已调整';
+            });
+        }
+        bindAdjust('hourplus', () => { hour = (hour + 1) % 24; });
+        bindAdjust('hourminus', () => { hour = (hour - 1 + 24) % 24; });
+        bindAdjust('minplus', () => { minute = (minute + 1) % 60; });
+        bindAdjust('minminus', () => { minute = (minute - 1 + 60) % 60; });
+        bindAdjust('secplus', () => { second = (second + 1) % 60; });
+        bindAdjust('secminus', () => { second = (second - 1 + 60) % 60; });
+
+        mainBtn.addEventListener('click', mainAction);
+        pauseBtn.addEventListener('click', pauseTimer);
+        resetBtn.addEventListener('click', resetTimer);
+        respondBtn.addEventListener('click', respondToCheck);
+        taskCompleteBtn.addEventListener('click', completeTask);
+
+        // ---------- 摄像头与 AI ----------
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 160 }, height: { ideal: 120 } }
+                });
+                video.srcObject = stream;
+                await initFaceLandmarker();
+                await loadObjectModel();
+            } catch (error) {
+                console.error('摄像头启动失败:', error);
+                statusMsg.textContent = '⚠️ 无法访问摄像头，请检查权限';
+            }
+        }
+
+        async function initFaceLandmarker() {
+            try {
+                const vision = await FilesetResolver.forVisionTasks(
+                    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+                );
+                faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+                    baseOptions: {
+                        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task"
+                    },
+                    runningMode: "VIDEO",
+                    numFaces: 1,
+                    minDetectionConfidence: 0.5,
+                    minTrackingConfidence: 0.5
+                });
+                detectorReady = true;
+                console.log('FaceLandmarker 已就绪');
+                if (detectionInterval) clearInterval(detectionInterval);
+                detectionInterval = setInterval(updateDetection, 150);
+            } catch (error) {
+                console.error('FaceLandmarker 初始化失败:', error);
+            }
+        }
+
+        // ---------- 初始化 ----------
+        updateDisplay();
+        statusMsg.textContent = '⏰ 设置时间，点击“开始”';
+        showStartOnly();
+        resetNextCheck();
+        checkArea.style.display = 'none';
+        setStatsButtonVisible(true);
+        startCamera();
+
+        window.addEventListener('beforeunload', function() {
+            if (detectionInterval) clearInterval(detectionInterval);
+            if (punishInterval) clearInterval(punishInterval);
+            if (objectDetectInterval) clearInterval(objectDetectInterval);
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+            }
+        });
+    </script>
+</body>
+</html>
